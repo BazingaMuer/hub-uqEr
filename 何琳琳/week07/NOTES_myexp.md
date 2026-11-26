@@ -43,7 +43,8 @@
 
 ```powershell
 # ── 0. 每次都要先进入工程根，否则 bert\train.py 找不到、相对路径全错位 ──
-cd D:\NLPEIGHT\homework\week7\code
+# 进入解压出来的 code 目录（我本机是 D:\NLPEIGHT\homework\week7\code，请换成你的位置）
+cd <解压目录>\code
 #  下面统一写 python（PyCharm 终端已激活 py312）。若在普通 PowerShell 里跑，换成
 #  & "D:\software\Anaconda3\envs\py312\python.exe"，否则会 ModuleNotFoundError: No module named 'numpy'。
 
@@ -51,12 +52,32 @@ cd D:\NLPEIGHT\homework\week7\code
 python rule\run_rule.py
 #   → outputs/metrics/disc/rule.json
 
-# ── 2. 预训练权重准备（不联网下载，从本地 cache 复制）──────────────
-#   BERT:  harbor 自带 D:\years\pretrain_models\bert-base-chinese
-#   RoBERTa / FinBERT: modelscope 下载后复制到 pretrain_models\
-modelscope download --model qolaris/FinBert --cache_dir D:\modelscope_cache
+# ── 2. 预训练权重准备 ──────────────────────────────────────
+# 【位置】三个权重必须放在工程根目录下的 pretrain_models\（与 data\、outputs\ 同级），
+#        因为后文所有 --bert_path 都是相对路径 pretrain_models\xxx。
+# 【为何 zip 里没有】该目录 3.6GB，超出 GitHub 单文件 100MB 上限；且 bert-base-chinese
+#        内部含 .git（会被识别成子模块），故有意排除，需按下述命令自备。
+# 【不用手建目录】下面的 snapshot_download 与 New-Item -Force 会自动创建目录（已实测）。
+# 期望结构：code\pretrain_models\{bert-base-chinese, roberta-base, finbert-zh}\
+#            每个目录内应含 config.json + pytorch_model.bin
+#
+# 以下命令在 code 目录内执行；<CACHE> 换成你自己的 modelscope 缓存目录（我本机用的是 D:\modelscope_cache）
+
+#   ① bert-base-chinese（HF 官方权重，392MB，走 LFS）
+python -c "from huggingface_hub import snapshot_download; snapshot_download('google-bert/bert-base-chinese', local_dir=r'pretrain_models\bert-base-chinese')"
+#      不要用 git clone：该仓库大文件走 git-lfs，未装 lfs 时只会拿到几十字节的指针文件，
+#      训练时报权重加载失败。snapshot_download 会正确下实体。
+#      若手头已有现成权重，直接复制到 pretrain_models\bert-base-chinese 也可，无需联网
+
+#   ② roberta-base（来源：modelscope iic/nlp_roberta_backbone_base_std）
+modelscope download --model iic/nlp_roberta_backbone_base_std --cache_dir <CACHE>
+New-Item -ItemType Directory -Force pretrain_models\roberta-base | Out-Null
+Copy-Item -Recurse "<CACHE>\models\iic--nlp_roberta_backbone_base_std\snapshots\master\*" pretrain_models\roberta-base
+
+#   ③ finbert-zh（来源：modelscope qolaris/FinBert）
+modelscope download --model qolaris/FinBert --cache_dir <CACHE>
 New-Item -ItemType Directory -Force pretrain_models\finbert-zh | Out-Null
-Copy-Item -Recurse "D:\modelscope_cache\models\qolaris--FinBert\snapshots\master\*" pretrain_models\finbert-zh
+Copy-Item -Recurse "<CACHE>\models\qolaris--FinBert\snapshots\master\*" pretrain_models\finbert-zh
 
 # ── 3. 验词表（决定可比性口径）────────────────────────────────────
 python -c "from transformers import AutoTokenizer,AutoConfig; p=r'pretrain_models\finbert-zh'; print(AutoTokenizer.from_pretrained(p).vocab_size); c=AutoConfig.from_pretrained(p); print(c.model_type,c.num_hidden_layers,c.hidden_size)"
